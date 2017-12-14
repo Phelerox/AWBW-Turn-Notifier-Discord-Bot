@@ -1,18 +1,22 @@
+import sys
+
 import discord
 from discord.ext import commands
 import asyncio
 import aiohttp
 import async_timeout
 
-
+debug = False
+if len(sys.argv) > 1:
+    debug = sys.argv[1] == "debug"
 bot = commands.Bot(command_prefix='$', description="notify_me_about <game_id>")
 global game_id_list
-game_id_list = ["254555"]
-global ended_games
-ended_games = []
+game_id_list = ["255899", "255900", "256517", "256552"]
 username_map = {"Phelerox":"Phelerox#5519", "Frazz3":"Frazz3#1777", "Quik":"[Q]uik#4332"}
 username_to_discord_user = {"Phelerox":None, "Frazz3":None, "Quik":None}
 aw_channel = discord.Object(id='378694324915011596')
+
+
 
 @bot.command()
 async def notify_me_about(ctx, game_id, pm_instead : str = ""):
@@ -20,7 +24,7 @@ async def notify_me_about(ctx, game_id, pm_instead : str = ""):
 
 
 async def check_turn_in_game(game_id, send_pm_instead=False, pm_reminders=False):
-    global ended_games, game_id_list
+    global game_id_list
     await bot.wait_until_ready()
     await bot.wait_until_login()
     same_turn_counter = 0
@@ -45,7 +49,6 @@ async def check_turn_in_game(game_id, send_pm_instead=False, pm_reminders=False)
                         await send_message(username_to_discord_user[last_turn_was], "Game " + game_id + " ended!")
                 else:
                     await send_message(aw_channel, "Game " + game_id + " ended!")
-                ended_games += game_id
                 try:
                     game_id_list.remove(game_id)
                 except ValueError:
@@ -55,14 +58,15 @@ async def check_turn_in_game(game_id, send_pm_instead=False, pm_reminders=False)
         if username != "" and username != last_turn_was:
             same_turn_counter = 0
             last_turn_was = username
-            print("Sending message")
-            if send_pm_instead:
-                await send_message(username_to_discord_user[username], "It's your turn!")
-            else:
-                mention = '<@' + str(username_to_discord_user[username].id) + '>'
-                await send_message(aw_channel, "%s's turn!" % mention)
-                print(username_to_discord_user[username].id)
-        elif username != "" and username == last_turn_was:
+            if username in username_to_discord_user.keys():
+                print("Sending message")
+                if send_pm_instead:
+                        await send_message(username_to_discord_user[username], "It's your turn!")
+                else:
+                    mention = '<@' + str(username_to_discord_user[username].id) + '>'
+                    await send_message(aw_channel, "%s's turn!" % mention)
+                    print(username_to_discord_user[username].id)
+        elif username != "" and username == last_turn_was and username in username_to_discord_user.keys():
             same_turn_counter += 1
             if pm_reminders and same_turn_counter % 90 == 0: #Remind by PM every 6 hours
                 print("It's been " + username + "'s turn for " + str(int(same_turn_counter / 15)) + " hours!")
@@ -75,19 +79,22 @@ async def check_turn_in_game(game_id, send_pm_instead=False, pm_reminders=False)
 
 async def get_html(session, game_id):
     try:
-        with async_timeout.timeout(40):
+        with async_timeout.timeout(80):
             async with session.get('http://awbw.amarriner.com/game.php?games_id=' + str(game_id)) as response:
                 return await response.text()
     except TimeoutError as te:
         await send_message(username_to_discord_user["Phelerox"], "TimeoutError! " + str(te))
-        return get_html(session, game_id)
+        return await get_html(session, game_id)
     except Exception as e:
         await send_message(username_to_discord_user["Phelerox"], "Unknown exception when fetching html! " + str(e.__class__.__name__))
-        return get_html(session, game_id)
+        return await get_html(session, game_id)
 
 async def send_message(destination, message):
     try:
-        await bot.send_message(destination, message)
+        if not debug:
+            await bot.send_message(destination, message)
+        else:
+            await bot.send_message(username_to_discord_user["Phelerox"], message)
     except Exception as e:
         print("Unknown exception when sending message: " + str(e.__class__.__name__))
         await send_message(destination, message)
@@ -106,9 +113,19 @@ async def on_ready():
     print('------')
 
 
-bot.loop.create_task(check_turn_in_game(game_id_list[0], pm_reminders=True))
+def start_bot():
+    bot.loop.create_task(check_turn_in_game(game_id_list[0], send_pm_instead=True))
+    bot.loop.create_task(check_turn_in_game(game_id_list[1], send_pm_instead=True))
+    bot.loop.create_task(check_turn_in_game(game_id_list[2], send_pm_instead=True))
+    bot.loop.create_task(check_turn_in_game(game_id_list[3], pm_reminders=True))
 
-token = '' #The token should be on the first line in a file named 'token'.
-with open('token', 'r') as token_file:
-    token = token_file.readline()
-bot.run(token)
+    token = ''  # The token should be on the first line in a file named 'token'.
+    with open('token', 'r') as token_file:  # TODO: rewrite this so that starting the bot works from any directory
+        token = token_file.readline()
+    bot.run(token)
+
+try:
+    start_bot()
+except Exception as e:
+    with open('fatal_crash_caught', 'a+') as crash_file:
+        crash_file.write("Crashed with Exception: " + str(repr(e)) + "\n")
